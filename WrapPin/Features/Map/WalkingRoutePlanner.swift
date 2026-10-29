@@ -52,17 +52,11 @@ final class WalkingRoutePlanner {
 
         let request = MKDirections.Request()
         if let source {
-            request.source = MKMapItem(
-                location: CLLocation(latitude: source.latitude, longitude: source.longitude),
-                address: nil
-            )
+            request.source = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: source.latitude, longitude: source.longitude)))
         } else {
             request.source = .forCurrentLocation()
         }
-        request.destination = MKMapItem(
-            location: CLLocation(latitude: target.latitude, longitude: target.longitude),
-            address: nil
-        )
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: target.latitude, longitude: target.longitude)))
         request.transportType = mode.transportType
         request.requestsAlternateRoutes = includingAlternatives
 

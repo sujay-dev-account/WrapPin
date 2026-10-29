@@ -298,7 +298,7 @@ final class MapViewModel: NSObject, MKLocalSearchCompleterDelegate {
                 return
             }
 
-            let coordinate = item.location.coordinate
+            let coordinate = item.placemark.coordinate
             let target = LocationTarget(
                 name: item.name ?? searchQuery,
                 subtitle: placeDescription(for: item),
@@ -459,12 +459,10 @@ final class MapViewModel: NSObject, MKLocalSearchCompleterDelegate {
         )
 
         for attempt in 0..<2 {
-            guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
-            request.preferredLocale = Locale.current
-
+            let geocoder = CLGeocoder()
             do {
-                if let item = try await request.mapItems.first {
-                    return item
+                if let placemark = try await geocoder.reverseGeocodeLocation(location, preferredLocale: Locale.current).first {
+                    return MKMapItem(placemark: placemark)
                 }
             } catch is CancellationError {
                 return nil
@@ -568,9 +566,9 @@ final class MapViewModel: NSObject, MKLocalSearchCompleterDelegate {
             CharacterSet(charactersIn: "\u{200B}\u{200C}\u{200D}\u{FEFF}")
         )
         let candidates = [
-            item.address?.shortAddress,
-            item.addressRepresentations?.cityWithContext,
-            item.address?.fullAddress
+            item.placemark.name,
+            item.placemark.locality,
+            item.placemark.administrativeArea
         ]
 
         for candidate in candidates {
