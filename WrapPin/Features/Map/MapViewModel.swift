@@ -462,7 +462,7 @@ final class MapViewModel: NSObject, MKLocalSearchCompleterDelegate {
             let geocoder = CLGeocoder()
             do {
                 if let placemark = try await geocoder.reverseGeocodeLocation(location, preferredLocale: Locale.current).first {
-                    return MKMapItem(placemark: placemark)
+                    return MKMapItem(placemark: MKPlacemark(placemark: placemark))
                 }
             } catch is CancellationError {
                 return nil

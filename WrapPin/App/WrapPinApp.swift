@@ -18,6 +18,7 @@ struct WrapPinApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
+                Group {
                 if appModel.hasCompletedOnboarding || shouldBypassOnboarding {
 #if WRAPPIN_SBB_EDITION
                     TrainView()
@@ -33,6 +34,7 @@ struct WrapPinApp: App {
                 } else {
                     OnboardingView()
                         .transition(.opacity)
+                }
                 }
             }
                 .environment(appModel)
