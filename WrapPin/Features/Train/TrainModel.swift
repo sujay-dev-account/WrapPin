@@ -11,10 +11,10 @@ import Observation
 final class TrainModel {
     var originQuery = "Aarau"
     var destinationQuery = "Zürich HB"
-    var origin: OJPStation?
-    var destination: OJPStation?
-    private(set) var originResults: [OJPStation] = []
-    private(set) var destinationResults: [OJPStation] = []
+    var origin: TransitStop?
+    var destination: TransitStop?
+    private(set) var originResults: [TransitStop] = []
+    private(set) var destinationResults: [TransitStop] = []
     var departure = Date.now
     var mode: RailSimulationMode = .timetable
     private(set) var journeys: [RailJourney] = []
@@ -23,14 +23,13 @@ final class TrainModel {
     private(set) var isRunning = false
     private(set) var isPreparing = false
     private(set) var isStopping = false
-    private(set) var hasToken = false
     private(set) var message: String?
     private(set) var sample: RailSample?
     private(set) var renderedCoordinate: RailCoordinate?
     private(set) var renderedSpeed = 0.0
     private(set) var refreshWarning: String?
 
-    @ObservationIgnored private var client: OJPClient?
+    @ObservationIgnored private var client = PublicTransitClient()
     @ObservationIgnored private var movementTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var engine: RailSimulation?
@@ -43,40 +42,21 @@ final class TrainModel {
     var selectedJourney: RailJourney? { journeys.first { $0.id == selectedID } }
     var locksControls: Bool { isRunning || isPreparing || isStopping }
 
-    /// The key is kept in memory only, never in UserDefaults, diagnostics or Git.
-    func configure(token: String, session: URLSession? = nil) {
-        guard !locksControls, !isLoading else { return }
-        let clean = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        client = clean.isEmpty ? nil : OJPClient(token: clean, session: session)
-        hasToken = !clean.isEmpty
-        journeys = []
-        selectedID = nil
-        message = nil
-    }
-
-    func searchStations() async {
-        guard let client, !isLoading, !locksControls else { return }
+    func searchStations(forOrigin: Bool) async {
+        guard !isLoading, !locksControls else { return }
         isLoading = true
         message = nil
-        journeys = []
-        selectedID = nil
-        origin = nil
-        destination = nil
         defer { isLoading = false }
         do {
-            // Two searches on explicit submit; no autocomplete requests per keystroke.
-            originResults = try await client.searchStations(named: originQuery)
-            destinationResults = try await client.searchStations(named: destinationQuery)
-            origin = originResults.first
-            destination = destinationResults.first
-            if origin == nil || destination == nil {
-                message = String(localized: "No stations found. Try another station name.")
-            }
+            let query = forOrigin ? originQuery : destinationQuery
+            let result = try await client.searchStops(query: query)
+            if forOrigin { originResults = result } else { destinationResults = result }
+            if result.isEmpty { message = String(localized: "No stops found. Try another name.") }
         } catch { message = error.localizedDescription }
     }
 
     func findConnections() async {
-        guard let client, let origin, let destination,
+        guard let origin, let destination,
               origin.id != destination.id, !isLoading, !locksControls else { return }
         isLoading = true
         message = nil
@@ -84,9 +64,7 @@ final class TrainModel {
         selectedID = nil
         defer { isLoading = false }
         do {
-            journeys = try await client.connections(
-                from: origin, to: destination, departure: departure, realtime: mode == .realtime
-            )
+            journeys = try await client.connections(from: origin, to: destination, departure: departure).map(\.journey)
             selectedID = journeys.first?.id
         } catch { message = error.localizedDescription }
     }
@@ -267,39 +245,11 @@ final class TrainModel {
     }
 
     private func beginRefresh(using app: AppModel) {
+        // The public endpoint provides timetable connections without a token.
+        // It has no stable journey-refresh contract, so playback remains on the
+        // selected timetable and is labelled as an estimate in the UI.
         refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self, weak app] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled, let self, let app,
-                      let client = self.client, let current = self.activeJourney else { return }
-                do {
-                    let refreshed = try await client.refresh(current)
-                    guard !Task.isCancelled, self.locksControls else { return }
-                    guard refreshed.id == current.id, refreshed.geometry == current.geometry,
-                          refreshed.stops.map(\.id) == current.stops.map(\.id) else {
-                        self.fail(String(localized: "The train route changed. Select the connection again."), using: app)
-                        return
-                    }
-                    let newEngine = try RailSimulation(journey: refreshed, mode: .realtime)
-                    guard newEngine.sample(at: .now).realtimeStatus == .estimated else {
-                        self.refreshWarning = String(localized: "No fresh predictions. Simulation stops when the data expires.")
-                        continue
-                    }
-                    self.activeJourney = refreshed
-                    self.engine = newEngine
-                    self.refreshWarning = nil
-                } catch RailSimulationError.cancelled {
-                    self.fail(String(localized: "This train was cancelled. Real location is being restored."), using: app)
-                    return
-                } catch OJPError.changedJourney {
-                    self.fail(String(localized: "The train route changed. Select the connection again."), using: app)
-                    return
-                } catch {
-                    self.refreshWarning = String(localized: "Refresh failed. Simulation stops when the data expires.")
-                }
-            }
-        }
+        refreshTask = nil
     }
 
     private func target(_ point: RailCoordinate) -> LocationTarget {

@@ -6,7 +6,6 @@ struct TrainView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = TrainModel()
-    @State private var token = ""
     @State private var showsPairing = false
     @State private var showsSettings = false
 
@@ -31,25 +30,16 @@ struct TrainView: View {
                         if let error = app.interruptedSessionError { Text(verbatim: error) }
                     }
                 }
-                Section("Open transport data access") {
-                    SecureField("OJP 2.0 API token", text: $token)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button(model.hasToken ? "Replace API token" : "Use API token") {
-                        model.configure(token: token)
-                        token = ""
-                    }.disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("The token stays in memory for this app session. Obtain your own OJP 2.0 key from opentransportdata.swiss.")
+                Section("Public Swiss timetable") {
+                    Text("Stop search and connections use transport.opendata.ch. No API key is required.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Text("Searches send station names, selected stations and travel times to the official data platform.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Link("Open data platform", destination: URL(string: "https://api-manager.opentransportdata.swiss/")!)
-                }.disabled(model.locksControls || model.isLoading)
+                }
 
                 Section("Stations") {
                     TextField("From station", text: $model.originQuery)
                     TextField("To station", text: $model.destinationQuery)
-                    Button("Search stations") { Task { await model.searchStations() } }
-                        .disabled(!model.hasToken || model.originQuery.isEmpty || model.destinationQuery.isEmpty)
+                    Button("Search stops") { Task { await model.searchStations(forOrigin: true); await model.searchStations(forOrigin: false) } }
+                        .disabled(model.originQuery.count < 2 || model.destinationQuery.count < 2)
                     if !model.originResults.isEmpty {
                         stationPicker(title: "From", results: model.originResults, selected: $model.origin)
                     }
@@ -64,7 +54,7 @@ struct TrainView: View {
                     }
                     Button("Find direct trains") { Task { await model.findConnections() } }
                         .disabled(model.origin == nil || model.destination == nil || model.origin?.id == model.destination?.id)
-                    Text("MVP: direct rail connections with detailed route geometry. Transfers are not supported yet.")
+                    Text("Bus, tram and train connections are provided by the public timetable service. The first MVP route is simulated as a direct connection.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .disabled(model.locksControls || model.isLoading)
@@ -193,7 +183,7 @@ struct TrainView: View {
         }
     }
 
-    private func stationPicker(title: LocalizedStringKey, results: [OJPStation], selected: Binding<OJPStation?>) -> some View {
+    private func stationPicker(title: LocalizedStringKey, results: [TransitStop], selected: Binding<TransitStop?>) -> some View {
         Picker(title, selection: Binding(
             get: { selected.wrappedValue?.id ?? "" },
             set: { id in selected.wrappedValue = results.first { $0.id == id } }

@@ -12,6 +12,85 @@ struct OJPStation: Identifiable, Equatable, Sendable {
     let coordinate: RailCoordinate
 }
 
+typealias TransitStop = OJPStation
+
+enum TransitVehicle: String, Sendable {
+    case train, tram, bus, ship, cableway, unknown
+}
+
+struct TransitConnection: Identifiable, Sendable {
+    let id: String
+    let journey: RailJourney
+    let vehicle: TransitVehicle
+    let departure: Date
+    let arrival: Date
+}
+
+/// Public Swiss timetable API. It requires no user token and is deliberately
+/// separate from the optional official OJP client below.
+actor PublicTransitClient {
+    private let session: URLSession
+    init(session: URLSession? = nil) {
+        if let session { self.session = session } else {
+            let c = URLSessionConfiguration.ephemeral
+            c.requestCachePolicy = .reloadIgnoringLocalCacheData
+            self.session = URLSession(configuration: c)
+        }
+    }
+
+    func searchStops(query: String) async throws -> [TransitStop] {
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return [] }
+        var c = URLComponents(string: "https://transport.opendata.ch/v1/locations")!
+        c.queryItems = [URLQueryItem(name: "query", value: query)]
+        let payload: LocationsResponse = try await get(c.url!)
+        var seen = Set<String>()
+        return payload.stations.compactMap { item in
+            guard let id = item.id, let coordinate = item.coordinate,
+                  coordinate.latitude.isFinite, coordinate.longitude.isFinite,
+                  seen.insert(id).inserted else { return nil }
+            return TransitStop(id: id, name: item.name, coordinate: RailCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude))
+        }
+    }
+
+    func connections(from: TransitStop, to: TransitStop, departure: Date) async throws -> [TransitConnection] {
+        var c = URLComponents(string: "https://transport.opendata.ch/v1/connections")!
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]
+        c.queryItems = [URLQueryItem(name: "from", value: from.id), URLQueryItem(name: "to", value: to.id), URLQueryItem(name: "date", value: f.string(from: departure)), URLQueryItem(name: "limit", value: "6")]
+        let payload: ConnectionsResponse = try await get(c.url!)
+        return payload.connections.enumerated().compactMap { index, item in
+            guard let dep = item.from.departureDate, let arr = item.to.arrivalDate else { return nil }
+            let category = item.sections.first?.journey?.category?.lowercased() ?? ""
+            let vehicle: TransitVehicle = category.contains("bus") ? .bus : category.contains("tram") ? .tram : category.contains("ship") ? .ship : category.isEmpty ? .unknown : .train
+            let stops = [RailStop(id: from.id, name: from.name, coordinate: from.coordinate, scheduledArrival: nil, scheduledDeparture: dep), RailStop(id: to.id, name: to.name, coordinate: to.coordinate, scheduledArrival: arr, scheduledDeparture: nil)]
+            let service = item.sections.first?.journey?.name ?? "Connection"
+            let journey = RailJourney(id: "public-\(index)-\(from.id)-\(to.id)", serviceName: "\(vehicle.rawValue.capitalized) · \(service)", stops: stops, geometry: [from.coordinate, to.coordinate], geometrySource: "Public Swiss timetable · simplified connection geometry")
+            return TransitConnection(id: journey.id, journey: journey, vehicle: vehicle, departure: dep, arrival: arr)
+        }
+    }
+
+    private func get<T: Decodable>(_ url: URL) async throws -> T {
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw OJPError.http((response as? HTTPURLResponse)?.statusCode ?? 0) }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private struct LocationsResponse: Decodable { let stations: [Location] }
+    private struct Location: Decodable { let id: String?; let name: String; let coordinate: Coordinate? }
+    private struct Coordinate: Decodable { let x: Double; let y: Double; var latitude: Double { y }; var longitude: Double { x } }
+    private struct ConnectionsResponse: Decodable { let connections: [Connection] }
+    private struct Connection: Decodable { let from: Point; let to: Point; let sections: [Section] }
+    private struct Point: Decodable { let departure: String?; let arrival: String?; var departureDate: Date? { PublicTransitClient.parse(departure) }; var arrivalDate: Date? { PublicTransitClient.parse(arrival) } }
+    private struct Section: Decodable { let journey: Journey? }
+    private struct Journey: Decodable { let name: String?; let category: String? }
+    private static func parse(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        if let date = ISO8601DateFormatter().date(from: value) { return date }
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
+        for format in ["yyyy-MM-dd HH:mm:ss Z", "yyyy-MM-dd HH:mm:ss"] { f.dateFormat = format; if let date = f.date(from: value) { return date } }
+        return nil
+    }
+}
+
 enum OJPError: Error, LocalizedError, Equatable {
     case missingToken, unauthorized, rateLimited, http(Int), malformedXML
     case serviceError, noConnections, unsupportedConnections, missingGeometry, missingStopCoordinates
