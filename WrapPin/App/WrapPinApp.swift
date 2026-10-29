@@ -21,7 +21,10 @@ struct WrapPinApp: App {
                 Group {
                 if appModel.hasCompletedOnboarding || shouldBypassOnboarding {
 #if WRAPPIN_SBB_EDITION
-                    TrainView()
+                    SBBHomeView(
+                        showDeviceSetupInitially: appModel.shouldPresentDeviceSetup,
+                        showSettingsInitially: shouldShowSettingsInitially
+                    )
 #else
                     HomeView(
                         showDeviceSetupInitially: appModel.shouldPresentDeviceSetup
@@ -87,3 +90,34 @@ struct WrapPinApp: App {
 #endif
     }
 }
+
+#if WRAPPIN_SBB_EDITION
+/// The SBB build keeps the complete WrapPin home screen and adds ÖV as a separate mode.
+private struct SBBHomeView: View {
+    let showDeviceSetupInitially: Bool
+    let showSettingsInitially: Bool
+    @State private var showTransit = false
+
+    var body: some View {
+        HomeView(
+            showDeviceSetupInitially: showDeviceSetupInitially,
+            showSettingsInitially: showSettingsInitially
+        )
+        .safeAreaInset(edge: .bottom) {
+            Button {
+                showTransit = true
+            } label: {
+                Label("ÖV", systemImage: "tram.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+            .padding(.horizontal)
+            .padding(.bottom, 6)
+        }
+        .sheet(isPresented: $showTransit) {
+            TrainView()
+        }
+    }
+}
+#endif
