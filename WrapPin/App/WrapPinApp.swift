@@ -30,7 +30,6 @@ struct WrapPinApp: App {
                     )
                     .task { await releaseUpdates.checkOnLaunch() }
 #endif
-                    .transition(.opacity)
                 } else {
                     OnboardingView()
                         .transition(.opacity)
