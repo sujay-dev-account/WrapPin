@@ -128,6 +128,7 @@ final class ReleaseUpdateModel {
     }
 
     func checkForUpdates() async {
+        guard BuildEdition.supportsUpstreamReleaseUpdates else { return }
         guard status != .checking else { return }
         status = .checking
 

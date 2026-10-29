@@ -6,7 +6,7 @@ WrapPin is designed to keep sensitive location and pairing information on the iP
 
 ## Information that stays on the iPhone
 
-WrapPin does not send:
+Except for explicit external search and train-data requests described below, WrapPin does not send:
 
 - Coordinates, selected places or addresses.
 - Search text, favourites or location history.
@@ -22,6 +22,12 @@ The Simulate Favourite shortcut makes favourite names and place descriptions ava
 Overseas place search is optional and only appears in builds that include a Geoapify API key. When you switch the search box to **Overseas** and tap Search, the search text is sent to [Geoapify](https://www.geoapify.com/privacy-policy/) over HTTPS to find candidates; nothing is sent while typing, in domestic mode, or for pasted coordinates. Geoapify can observe connection metadata such as the requesting IP address. The request contains no coordinates, pairing data, device name or diagnostics. Recent results are cached on the iPhone for seven days and a daily search count is stored locally; neither is uploaded or included in usage statistics.
 
 When the app opens, it requests the latest public release metadata from GitHub to check for an update. The request does not include location, pairing or diagnostic data. As with any network request, GitHub can observe connection metadata such as the requesting IP address.
+
+## Experimental SBB variant
+
+The separate **WrapPin SBB** target sends station search text, selected station identifiers, departure time and the selected service reference to the official `api.opentransportdata.swiss` OJP service over HTTPS. Requests occur on explicit search and, during live playback, once per minute. The provider receives the personal API token and ordinary connection metadata such as the IP address. It does not receive the device's real or simulated coordinates, pairing records, Apple credentials or diagnostics from this feature.
+
+The OJP token and rail responses remain in memory for the current app session. The token is never put in UserDefaults, logs, recovery records or the build. A local last-location recovery record is still retained by the existing location session so real location can be restored after interruption. Train playback is not automatically resumed. This target has no analytics destination and its upstream release checker is disabled. The existing Standard and Tunnel variants do not display or activate the experimental train screen.
 
 ## Optional background location indicator preference
 

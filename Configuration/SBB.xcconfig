@@ -1,0 +1,8 @@
+// Experimental variant: deliberately independent of Local.private.xcconfig.
+// Signing or installation requires a separate, explicit user decision.
+DEVELOPMENT_TEAM =
+WRAPPIN_TELEMETRY_APP_ID =
+WRAPPIN_TELEMETRY_NAMESPACE =
+WRAPPIN_GEOAPIFY_API_KEY =
+
+#include "Version.xcconfig"

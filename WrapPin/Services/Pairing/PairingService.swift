@@ -17,7 +17,11 @@ protocol PairingService: Sendable {
 }
 
 actor SecurePairingService: PairingService {
+#if WRAPPIN_SBB_EDITION
+    private let keychainService = "ch.local.wrappin.sbb.experimental.rppairing"
+#else
     private let keychainService = "com.suversal.wrappin.rppairing"
+#endif
     private let keychainAccount = "current-device"
 
     func storedRecord() throws -> PairingRecordSummary? {

@@ -19,12 +19,16 @@ struct WrapPinApp: App {
         WindowGroup {
             Group {
                 if appModel.hasCompletedOnboarding || shouldBypassOnboarding {
+#if WRAPPIN_SBB_EDITION
+                    TrainView()
+#else
                     HomeView(
                         showDeviceSetupInitially: appModel.shouldPresentDeviceSetup
                             || shouldShowDeviceSetupInitially,
                         showSettingsInitially: shouldShowSettingsInitially
                     )
                     .task { await releaseUpdates.checkOnLaunch() }
+#endif
                     .transition(.opacity)
                 } else {
                     OnboardingView()
