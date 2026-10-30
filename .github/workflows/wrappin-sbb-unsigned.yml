@@ -2,6 +2,8 @@ name: WrapPin SBB unsigned IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/sbb-train-mvp]
 
 jobs:
   build:
