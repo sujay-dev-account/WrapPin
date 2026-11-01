@@ -30,6 +30,7 @@ final class TrainModel {
     private(set) var refreshWarning: String?
 
     @ObservationIgnored private var client = PublicTransitClient()
+    @ObservationIgnored private var geometryResolver = PublicTransitGeometryResolver()
     @ObservationIgnored private var movementTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var engine: RailSimulation?
@@ -100,13 +101,22 @@ final class TrainModel {
             message = String(localized: "Stop the existing location session before starting a train.")
             return
         }
+        isPreparing = true
+        var openedLocationSession = false
+        defer {
+            if !openedLocationSession { isPreparing = false }
+        }
         do {
+            message = String(localized: "Loading route geometry from open map data…")
+            let resolvedJourney = try await geometryResolver.resolve(journey)
+            guard !Task.isCancelled, selectedID == journey.id else { return }
+            if let index = journeys.firstIndex(where: { $0.id == journey.id }) { journeys[index] = resolvedJourney }
             let now = Date.now
-            let newEngine = try RailSimulation(journey: journey, mode: mode, now: now)
+            let newEngine = try RailSimulation(journey: resolvedJourney, mode: mode, now: now)
             // Timetable is replayed from its first planned departure. Live mode
             // stays on the actual clock and is always labelled as an estimate.
-            let firstDeparture = journey.stops.first?.scheduledDeparture
-                ?? journey.stops.first?.scheduledArrival ?? now
+            let firstDeparture = resolvedJourney.stops.first?.scheduledDeparture
+                ?? resolvedJourney.stops.first?.scheduledArrival ?? now
             clockOffset = mode == .timetable ? firstDeparture.timeIntervalSince(now) : 0
             let initial = newEngine.sample(at: now.addingTimeInterval(clockOffset))
             if mode == .realtime, initial.realtimeStatus != .estimated {
@@ -114,7 +124,7 @@ final class TrainModel {
                 return
             }
             engine = newEngine
-            activeJourney = journey
+            activeJourney = resolvedJourney
             sample = initial
             renderedCoordinate = initial.coordinate
             renderedDistance = initial.distanceMetres
@@ -122,9 +132,9 @@ final class TrainModel {
             renderedSpeed = 0
             refreshWarning = nil
             message = nil
-            isPreparing = true
             await app.startLocationSession(at: target(initial.coordinate), coordinateMode: .wgs84)
             guard isPreparing else { return }
+            openedLocationSession = true
             beginTicks(using: app)
             if mode == .realtime { beginRefresh(using: app) }
         } catch { message = error.localizedDescription }

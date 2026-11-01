@@ -54,7 +54,7 @@ struct TrainView: View {
                     }
                     Button("Find connections") { Task { await model.findConnections() } }
                         .disabled(model.origin == nil || model.destination == nil || model.origin?.id == model.destination?.id)
-                    Text("Train, bus and tram connections including transfers are shown from the public timetable. Playback requires published route geometry and is unavailable for timetable-only connections.")
+                    Text("Train, bus and tram connections including transfers are shown from the public timetable. Playback resolves its rail and road geometry from open map data before it starts.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .disabled(model.locksControls || model.isLoading)
@@ -132,7 +132,7 @@ struct TrainView: View {
                             .disabled(model.isStopping)
                     } else {
                         Button("Start train simulation") { Task { await model.start(using: app) } }
-                        .disabled(model.selectedJourney == nil || (model.selectedJourney?.geometry.count ?? 0) < 2 || model.isLoading || app.interruptedSession != nil)
+                        .disabled(model.selectedJourney == nil || model.isLoading || app.interruptedSession != nil)
                     }
                     if let message = model.message { Text(verbatim: message).foregroundStyle(.orange) }
                     if let warning = model.refreshWarning { Text(verbatim: warning).foregroundStyle(.orange) }

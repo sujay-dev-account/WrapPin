@@ -16,18 +16,18 @@ arrival/departure values are shown as forecasts when returned.
 
 ## Geometry and playback
 
-The public endpoint currently returns stop coordinates and timetable/prognosis
-data, but does not return a route polyline or track/road shape. Public
-connections therefore intentionally contain an empty geometry and the Start
-button is disabled. No straight-line route is drawn and no GPS-style vehicle
-location is inferred from the stop sequence.
+The public endpoint returns stop coordinates and timetable/prognosis data, but
+does not return a route polyline. Before a selected connection starts, the app
+resolves its geometry from open map data: OpenStreetMap railway ways are used
+for train/tram legs and OSRM road routing is used for bus and walking legs.
+If any segment cannot be resolved, playback stops with an error instead of
+falling back to a straight-line route. The displayed position remains a
+timetable simulation, not live vehicle GPS.
 
-The optional token-based OJP path remains the only implemented playback source:
-it accepts detailed OJP `LinkProjection` geometry and stop-time forecasts, and
-will refuse a missing or coarse projection. It does not claim that estimates
-are live vehicle GPS. A public, licensed source with routable rail/bus/tram
-polylines is still required before token-free playback can be enabled without
-inventing positions.
+The optional token-based OJP path can instead provide detailed OJP
+`LinkProjection` geometry and stop-time forecasts. It remains preferable where
+available because it supplies the service-specific projection directly. Neither
+source claims that estimates are live vehicle GPS.
 
 ## Verification
 
