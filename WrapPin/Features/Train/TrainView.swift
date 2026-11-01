@@ -67,23 +67,19 @@ struct TrainView: View {
 
                 if model.isLoading { ProgressView() }
                 if !model.journeys.isEmpty {
-                    Section("Connections") {
+                    Section {
+                        Text("Verbindung wählen")
+                            .font(.title3.bold())
+                            .textCase(nil)
                         ForEach(model.journeys) { journey in
                             Button {
                                 model.selectedID = journey.id
                             } label: {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(verbatim: journey.serviceName)
-                                        Text(verbatim: connectionTimes(journey))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if journey.id == model.selectedID {
-                                        Image(systemName: "checkmark.circle.fill")
-                                    }
-                                }
+                                connectionCard(journey, selected: journey.id == model.selectedID)
                             }
+                            .buttonStyle(.plain)
+                            .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                            .listRowBackground(Color.clear)
                         }
                     }.disabled(model.locksControls)
                 }
@@ -216,6 +212,109 @@ struct TrainView: View {
                 }
             }
         }.id(journey.id)
+    }
+
+    private func connectionCard(_ journey: RailJourney, selected: Bool) -> some View {
+        let primaryLeg = journey.legs.first { !$0.isWalkingTransfer }
+        let service = primaryLeg?.serviceName.isEmpty == false ? primaryLeg!.serviceName : journey.serviceName
+        let direction = primaryLeg?.stops.last?.name ?? journey.stops.last?.name ?? ""
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: vehicleSymbol(primaryLeg?.vehicle ?? .unknown))
+                    .font(.headline).foregroundStyle(.indigo)
+                    .frame(width: 24)
+                Text(verbatim: service).font(.headline)
+                if !direction.isEmpty {
+                    Text(verbatim: "Richtung \(direction)")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.indigo)
+                        .accessibilityLabel("Ausgewählt")
+                }
+            }
+            HStack(spacing: 10) {
+                Text(verbatim: departureTime(journey)).font(.title3.bold()).monospacedDigit()
+                timeline(stops: journey.stops)
+                Text(verbatim: arrivalTime(journey)).font(.title3.bold()).monospacedDigit()
+            }
+            HStack {
+                Text(verbatim: durationText(journey))
+                Spacer()
+                Text(verbatim: transferText(journey))
+            }
+            .font(.subheadline).foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(selected ? Color.indigo.opacity(0.10) : Color(uiColor: .secondarySystemBackground))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(selected ? Color.indigo : Color.clear, lineWidth: 2)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Tippen, um diese Verbindung auszuwählen")
+    }
+
+    private func timeline(stops: [RailStop]) -> some View {
+        HStack(spacing: 0) {
+            Circle().fill(.primary).frame(width: 10, height: 10)
+            Rectangle().fill(.secondary).frame(height: 1)
+            if stops.count > 2 {
+                Circle().fill(.white).overlay(Circle().stroke(.secondary, lineWidth: 1.5)).frame(width: 8, height: 8)
+                Rectangle().fill(.secondary).frame(height: 1)
+            }
+            Circle().fill(.primary).frame(width: 10, height: 10)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
+    }
+
+    private func vehicleSymbol(_ vehicle: TransitVehicle) -> String {
+        switch vehicle {
+        case .train: "train.side.front.car"
+        case .tram: "tram"
+        case .bus: "bus"
+        case .ship: "ferry"
+        case .cableway: "cablecar"
+        case .unknown: "figure.walk"
+        }
+    }
+
+    private func departureTime(_ journey: RailJourney) -> String {
+        time(journey.stops.first?.scheduledDeparture ?? journey.stops.first?.scheduledArrival)
+    }
+
+    private func arrivalTime(_ journey: RailJourney) -> String {
+        time(journey.stops.last?.scheduledArrival ?? journey.stops.last?.scheduledDeparture)
+    }
+
+    private func durationText(_ journey: RailJourney) -> String {
+        guard let departure = journey.stops.first?.scheduledDeparture ?? journey.stops.first?.scheduledArrival,
+              let arrival = journey.stops.last?.scheduledArrival ?? journey.stops.last?.scheduledDeparture else { return "Fahrzeit unbekannt" }
+        let minutes = max(0, Int(arrival.timeIntervalSince(departure) / 60))
+        return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
+    }
+
+    private func transferText(_ journey: RailJourney) -> String {
+        let vehicles = journey.legs.filter { !$0.isWalkingTransfer }
+        let transfers = max(0, vehicles.count - 1)
+        if transfers == 0 { return "Direkte Verbindung" }
+        return transfers == 1 ? "1 Umstieg" : "\(transfers) Umstiege"
+    }
+
+    private func time(_ date: Date?) -> String {
+        guard let date else { return "–" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = TimeZone(identifier: "Europe/Zurich")
+        return formatter.string(from: date)
     }
 
     private func connectionTimes(_ journey: RailJourney) -> String {
