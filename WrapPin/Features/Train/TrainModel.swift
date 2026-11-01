@@ -39,6 +39,8 @@ final class TrainModel {
     @ObservationIgnored private var lastTick: Date?
     @ObservationIgnored private var renderedDistance = 0.0
     @ObservationIgnored private var motion = RailMotionLimiter()
+    @ObservationIgnored private var originSearchTask: Task<Void, Never>?
+    @ObservationIgnored private var destinationSearchTask: Task<Void, Never>?
 
     var selectedJourney: RailJourney? { journeys.first { $0.id == selectedID } }
     var locksControls: Bool { isRunning || isPreparing || isStopping }
@@ -51,9 +53,38 @@ final class TrainModel {
         do {
             let query = forOrigin ? originQuery : destinationQuery
             let result = try await client.searchStops(query: query)
+            guard query == (forOrigin ? originQuery : destinationQuery) else { return }
             if forOrigin { originResults = result } else { destinationResults = result }
             if result.isEmpty { message = String(localized: "No stops found. Try another name.") }
         } catch { message = error.localizedDescription }
+    }
+
+    func scheduleStationSearch(forOrigin: Bool) {
+        let query = (forOrigin ? originQuery : destinationQuery).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            if forOrigin {
+                originSearchTask?.cancel()
+                originSearchTask = nil
+                originResults = []
+            } else {
+                destinationSearchTask?.cancel()
+                destinationSearchTask = nil
+                destinationResults = []
+            }
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            await self.searchStations(forOrigin: forOrigin)
+        }
+        if forOrigin {
+            originSearchTask?.cancel()
+            originSearchTask = task
+        } else {
+            destinationSearchTask?.cancel()
+            destinationSearchTask = task
+        }
     }
 
     func findConnections() async {
@@ -78,12 +109,15 @@ final class TrainModel {
         renderedCoordinate = nil
     }
 
-    func invalidateStations() {
-        guard !locksControls, !isLoading else { return }
-        origin = nil
-        destination = nil
-        originResults = []
-        destinationResults = []
+    func invalidateStation(forOrigin: Bool) {
+        guard !locksControls else { return }
+        if forOrigin {
+            origin = nil
+            originResults = []
+        } else {
+            destination = nil
+            destinationResults = []
+        }
         clearConnections()
     }
 

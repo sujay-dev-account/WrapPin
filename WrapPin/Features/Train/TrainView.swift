@@ -36,15 +36,15 @@ struct TrainView: View {
                 }
 
                 Section("Stations") {
-                    TextField("From station", text: $model.originQuery)
-                    TextField("To station", text: $model.destinationQuery)
-                    Button("Search stops") { Task { await model.searchStations(forOrigin: true); await model.searchStations(forOrigin: false) } }
-                        .disabled(model.originQuery.count < 2 || model.destinationQuery.count < 2)
+                    TextField("From station", text: $model.originQuery, prompt: Text("Type a stop name"))
+                        .textInputAutocapitalization(.words)
+                    TextField("To station", text: $model.destinationQuery, prompt: Text("Type a stop name"))
+                        .textInputAutocapitalization(.words)
                     if !model.originResults.isEmpty {
-                        stationPicker(title: "From", results: model.originResults, selected: $model.origin)
+                        stationPicker(title: "Choose from", results: model.originResults, selected: $model.origin)
                     }
                     if !model.destinationResults.isEmpty {
-                        stationPicker(title: "To", results: model.destinationResults, selected: $model.destination)
+                        stationPicker(title: "Choose to", results: model.destinationResults, selected: $model.destination)
                     }
                     DatePicker("Departure", selection: $model.departure, displayedComponents: [.date, .hourAndMinute])
                         .environment(\.timeZone, TimeZone(identifier: "Europe/Zurich")!)
@@ -57,9 +57,15 @@ struct TrainView: View {
                     Text("Train, bus and tram connections including transfers are shown from the public timetable. Playback resolves its rail and road geometry from open map data before it starts.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                .disabled(model.locksControls || model.isLoading)
-                .onChange(of: model.originQuery) { _, _ in model.invalidateStations() }
-                .onChange(of: model.destinationQuery) { _, _ in model.invalidateStations() }
+                .disabled(model.locksControls)
+                .onChange(of: model.originQuery) { _, _ in
+                    model.invalidateStation(forOrigin: true)
+                    model.scheduleStationSearch(forOrigin: true)
+                }
+                .onChange(of: model.destinationQuery) { _, _ in
+                    model.invalidateStation(forOrigin: false)
+                    model.scheduleStationSearch(forOrigin: false)
+                }
                 .onChange(of: model.origin?.id) { _, _ in model.clearConnections() }
                 .onChange(of: model.destination?.id) { _, _ in model.clearConnections() }
                 .onChange(of: model.mode) { _, _ in model.clearConnections() }

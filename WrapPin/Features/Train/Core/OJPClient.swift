@@ -42,7 +42,7 @@ actor PublicTransitClient {
     }
 
     func searchStops(query: String) async throws -> [TransitStop] {
-        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return [] }
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         var c = URLComponents(url: baseURL.appendingPathComponent("locations"), resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "query", value: query)]
         let payload: LocationsResponse = try await get(c.url!)
