@@ -148,7 +148,8 @@ actor PublicTransitClient {
         return input.map { stop in
             var arrival = stop.scheduledArrival
             var departure = stop.scheduledDeparture
-            if let arrival, let departure, departure < arrival { departure = arrival }
+            if let scheduledArrival = arrival, let scheduledDeparture = departure,
+               scheduledDeparture < scheduledArrival { departure = scheduledArrival }
             if let previous = lastDeparture,
                let arrival,
                arrival <= previous {
