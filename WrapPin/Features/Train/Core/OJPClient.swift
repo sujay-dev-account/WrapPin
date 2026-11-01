@@ -80,7 +80,7 @@ actor PublicTransitClient {
                                   serviceName: service, stops: stops, isWalkingTransfer: section.walk != nil)
             }
             guard !legs.isEmpty else { return nil }
-            let stops = Self.mergeStops(legs.flatMap(\.stops))
+            let stops = Self.normalizeTimeline(Self.mergeStops(legs.flatMap(\.stops)))
             guard stops.count >= 2 else { return nil }
             let service = legs.map(\.serviceName).joined(separator: " → ")
             let hasForecast = stops.contains { $0.estimatedArrival != nil || $0.estimatedDeparture != nil }
@@ -137,6 +137,31 @@ actor PublicTransitClient {
                 estimatedArrival: last.estimatedArrival ?? stop.estimatedArrival,
                 estimatedDeparture: stop.estimatedDeparture ?? last.estimatedDeparture,
                 cancelled: last.cancelled || stop.cancelled)
+        }
+    }
+    /// Public timetable feeds occasionally expose two successive calls with the
+    /// same minute, or a departure a few seconds before the prior arrival. A
+    /// simulator needs a strictly ordered timeline. Preserve published times
+    /// wherever possible and only advance the conflicting call by two minutes.
+    private static func normalizeTimeline(_ input: [RailStop]) -> [RailStop] {
+        var lastDeparture: Date?
+        return input.map { stop in
+            var arrival = stop.scheduledArrival
+            var departure = stop.scheduledDeparture
+            if let arrival, let departure, departure < arrival { departure = arrival }
+            if let previous = lastDeparture,
+               let arrival,
+               arrival <= previous {
+                let adjusted = previous.addingTimeInterval(120)
+                arrival = adjusted
+                if departure == nil || departure! < adjusted { departure = adjusted }
+            }
+            if let departure { lastDeparture = departure }
+            else if let arrival { lastDeparture = arrival }
+            return RailStop(id: stop.id, name: stop.name, coordinate: stop.coordinate,
+                            scheduledArrival: arrival, scheduledDeparture: departure,
+                            estimatedArrival: stop.estimatedArrival, estimatedDeparture: stop.estimatedDeparture,
+                            cancelled: stop.cancelled)
         }
     }
     private static func vehicle(category: String?, product: String?) -> TransitVehicle {
