@@ -151,8 +151,8 @@ actor PublicTransitClient {
             if let scheduledArrival = arrival, let scheduledDeparture = departure,
                scheduledDeparture < scheduledArrival { departure = scheduledArrival }
             if let previous = lastDeparture,
-               let arrival,
-               arrival <= previous {
+               let scheduledArrival = arrival,
+               scheduledArrival <= previous {
                 let adjusted = previous.addingTimeInterval(120)
                 arrival = adjusted
                 if departure == nil || departure! < adjusted { departure = adjusted }
