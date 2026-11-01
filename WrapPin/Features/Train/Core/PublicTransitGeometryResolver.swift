@@ -30,29 +30,27 @@ actor PublicTransitGeometryResolver {
         var shape: [RailCoordinate] = []
         for leg in legs {
             guard leg.stops.count >= 2 else { continue }
-            for index in 1..<leg.stops.count {
-                let from = leg.stops[index - 1].coordinate
-                let to = leg.stops[index].coordinate
-                let segment: [RailCoordinate]
-                if leg.isWalkingTransfer {
-                    segment = try await mapRoute(from: from, to: to, transport: .walking)
-                } else {
-                    do {
-                        // MapKit's public-transit geometry is normally much
-                        // faster than a raw OSM network query and represents
-                        // the selected train, bus or tram corridor.
-                        segment = try await mapRoute(from: from, to: to, transport: .transit)
-                    } catch {
-                        switch leg.vehicle {
-                        case .train, .tram, .cableway:
-                            segment = try await railRoute(from: from, to: to, tram: leg.vehicle == .tram)
-                        case .bus, .ship, .unknown:
-                            segment = try await roadRoute(from: from, to: to)
-                        }
+            let from = leg.stops[0].coordinate
+            let to = leg.stops[leg.stops.count - 1].coordinate
+            let segment: [RailCoordinate]
+            if leg.isWalkingTransfer {
+                segment = try await mapRoute(from: from, to: to, transport: .walking)
+            } else {
+                do {
+                    // Resolve an entire vehicle leg in one request. Resolving
+                    // every intermediate stop used to multiply a temporary
+                    // maps outage into a minute-long wait at the start button.
+                    segment = try await mapRoute(from: from, to: to, transport: .transit)
+                } catch {
+                    switch leg.vehicle {
+                    case .train, .tram, .cableway:
+                        segment = try await railRoute(from: from, to: to, tram: leg.vehicle == .tram)
+                    case .bus, .ship, .unknown:
+                        segment = try await roadRoute(from: from, to: to)
                     }
                 }
-                append(segment, to: &shape)
             }
+            append(segment, to: &shape)
         }
         guard shape.count >= 2 else { throw RailSimulationError.missingGeometry }
         return RailJourney(id: journey.id, serviceName: journey.serviceName, stops: journey.stops,
@@ -78,18 +76,33 @@ actor PublicTransitGeometryResolver {
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: from.latitude, longitude: from.longitude)))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: to.latitude, longitude: to.longitude)))
         request.transportType = transport
-        let response = try await MKDirections(request: request).calculate()
-        guard let polyline = response.routes.first?.polyline, polyline.pointCount >= 2 else {
-            throw RailSimulationError.missingGeometry
+        let directions = MKDirections(request: request)
+        return try await withThrowingTaskGroup(of: [RailCoordinate].self) { group in
+            group.addTask {
+                let response = try await directions.calculate()
+                guard let polyline = response.routes.first?.polyline, polyline.pointCount >= 2 else {
+                    throw RailSimulationError.missingGeometry
+                }
+                var coordinates = Array(repeating: kCLLocationCoordinate2DInvalid, count: polyline.pointCount)
+                polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: polyline.pointCount))
+                let points = coordinates.compactMap { coordinate -> RailCoordinate? in
+                    guard CLLocationCoordinate2DIsValid(coordinate) else { return nil }
+                    return RailCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                }
+                guard points.count >= 2 else { throw RailSimulationError.missingGeometry }
+                return points
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(6))
+                throw URLError(.timedOut)
+            }
+            defer {
+                group.cancelAll()
+                directions.cancel()
+            }
+            guard let result = try await group.next() else { throw URLError(.unknown) }
+            return result
         }
-        var coordinates = Array(repeating: kCLLocationCoordinate2DInvalid, count: polyline.pointCount)
-        polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: polyline.pointCount))
-        let points = coordinates.compactMap { coordinate -> RailCoordinate? in
-            guard CLLocationCoordinate2DIsValid(coordinate) else { return nil }
-            return RailCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        }
-        guard points.count >= 2 else { throw RailSimulationError.missingGeometry }
-        return points
     }
 
     private func railRoute(from: RailCoordinate, to: RailCoordinate, tram: Bool) async throws -> [RailCoordinate] {
