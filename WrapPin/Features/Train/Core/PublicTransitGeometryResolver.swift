@@ -1,4 +1,5 @@
 import Foundation
+import MapKit
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -13,7 +14,10 @@ actor PublicTransitGeometryResolver {
         if let session { self.session = session } else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            configuration.timeoutIntervalForRequest = 30
+            // Open map servers are a fallback only. Never leave the start
+            // button waiting for their often busy public query queues.
+            configuration.timeoutIntervalForRequest = 8
+            configuration.timeoutIntervalForResource = 10
             self.session = URLSession(configuration: configuration)
         }
     }
@@ -30,11 +34,22 @@ actor PublicTransitGeometryResolver {
                 let from = leg.stops[index - 1].coordinate
                 let to = leg.stops[index].coordinate
                 let segment: [RailCoordinate]
-                switch leg.vehicle {
-                case .train, .tram, .cableway:
-                    segment = try await railRoute(from: from, to: to, tram: leg.vehicle == .tram)
-                case .bus, .ship, .unknown:
-                    segment = try await roadRoute(from: from, to: to)
+                if leg.isWalkingTransfer {
+                    segment = try await mapRoute(from: from, to: to, transport: .walking)
+                } else {
+                    do {
+                        // MapKit's public-transit geometry is normally much
+                        // faster than a raw OSM network query and represents
+                        // the selected train, bus or tram corridor.
+                        segment = try await mapRoute(from: from, to: to, transport: .transit)
+                    } catch {
+                        switch leg.vehicle {
+                        case .train, .tram, .cableway:
+                            segment = try await railRoute(from: from, to: to, tram: leg.vehicle == .tram)
+                        case .bus, .ship, .unknown:
+                            segment = try await roadRoute(from: from, to: to)
+                        }
+                    }
                 }
                 append(segment, to: &shape)
             }
@@ -42,7 +57,7 @@ actor PublicTransitGeometryResolver {
         guard shape.count >= 2 else { throw RailSimulationError.missingGeometry }
         return RailJourney(id: journey.id, serviceName: journey.serviceName, stops: journey.stops,
                            geometry: shape,
-                           geometrySource: "OpenStreetMap railway ways and OSRM road routing; resolved for this selected timetable connection.",
+                           geometrySource: "Apple Maps public-transit routing with OpenStreetMap/OSRM fallback; resolved for this selected timetable connection.",
                            realtimeUpdatedAt: journey.realtimeUpdatedAt, cancelled: journey.cancelled, legs: journey.legs)
     }
 
@@ -58,8 +73,29 @@ actor PublicTransitGeometryResolver {
         return points
     }
 
+    private func mapRoute(from: RailCoordinate, to: RailCoordinate, transport: MKDirectionsTransportType) async throws -> [RailCoordinate] {
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: from.latitude, longitude: from.longitude)))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: to.latitude, longitude: to.longitude)))
+        request.transportType = transport
+        let response = try await MKDirections(request: request).calculate()
+        guard let polyline = response.routes.first?.polyline, polyline.pointCount >= 2 else {
+            throw RailSimulationError.missingGeometry
+        }
+        var coordinates = Array(repeating: kCLLocationCoordinate2DInvalid, count: polyline.pointCount)
+        polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: polyline.pointCount))
+        let points = coordinates.compactMap { coordinate -> RailCoordinate? in
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return nil }
+            return RailCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        }
+        guard points.count >= 2 else { throw RailSimulationError.missingGeometry }
+        return points
+    }
+
     private func railRoute(from: RailCoordinate, to: RailCoordinate, tram: Bool) async throws -> [RailCoordinate] {
-        let padding = max(0.025, min(0.12, from.distance(to: to) / 80_000))
+        // A narrow corridor keeps the fallback query small enough for public
+        // Overpass servers, while still covering normal Swiss track offsets.
+        let padding = max(0.012, min(0.04, from.distance(to: to) / 150_000))
         let south = min(from.latitude, to.latitude) - padding
         let north = max(from.latitude, to.latitude) + padding
         let west = min(from.longitude, to.longitude) - padding
