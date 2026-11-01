@@ -43,10 +43,22 @@ struct RailJourney: Codable, Equatable, Identifiable, Sendable {
     let geometrySource: String
     var realtimeUpdatedAt: Date? = nil
     var cancelled: Bool = false
+    /// The public timetable exposes the complete connection as vehicle legs.
+    /// OJP journeys may leave this empty because their single TimedLeg already
+    /// carries the selected train's call sequence and track projection.
+    var legs: [TransitLeg] = []
 
     enum CodingKeys: String, CodingKey {
-        case id, serviceName, stops, geometry, geometrySource, realtimeUpdatedAt, cancelled
+        case id, serviceName, stops, geometry, geometrySource, realtimeUpdatedAt, cancelled, legs
     }
+}
+
+struct TransitLeg: Codable, Equatable, Identifiable, Sendable {
+    let id: String
+    let vehicle: TransitVehicle
+    let serviceName: String
+    let stops: [RailStop]
+    let isWalkingTransfer: Bool
 }
 
 extension RailStop {
@@ -73,6 +85,7 @@ extension RailJourney {
         geometrySource = try values.decode(String.self, forKey: .geometrySource)
         realtimeUpdatedAt = try values.decodeIfPresent(Date.self, forKey: .realtimeUpdatedAt)
         cancelled = try values.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
+        legs = try values.decodeIfPresent([TransitLeg].self, forKey: .legs) ?? []
     }
 }
 

@@ -1,9 +1,58 @@
 import XCTest
 @testable import RailCore
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Hand-authored small fixtures follow the official OJP 2.0 cookbook structures.
 /// They are not a recorded live service response and prove no live availability.
 final class OJPClientTests: XCTestCase {
+    func testPublicTimetableUsesSwissDateTimeCoordinatesAndAllVehicleLegs() async throws {
+        let protocolType = PublicTimetableURLProtocol.self
+        protocolType.handler = { request in
+            let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+            let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(values["date"], "2026-11-01")
+            XCTAssertEqual(values["time"], "12:00")
+            XCTAssertNil(values["date"]?.firstIndex(of: "T"))
+            let body = """
+            {"connections":[{
+              "from":{"departure":"2026-11-01T12:02:00+01:00"},
+              "to":{"arrival":"2026-11-01T12:55:00+01:00"},
+              "sections":[
+                {"journey":{"category":"IC","number":"8","passList":[
+                  {"station":{"id":"8507000","name":"Bern","coordinate":{"x":46.948831,"y":7.439129}},"departure":"2026-11-01T12:02:00+01:00"},
+                  {"station":{"id":"8506000","name":"Olten","coordinate":{"x":47.351,"y":7.907}},"arrival":"2026-11-01T12:29:00+01:00","departure":"2026-11-01T12:31:00+01:00","prognosis":{"arrival":"2026-11-01T12:30:00+01:00","departure":"2026-11-01T12:32:00+01:00"}}
+                ]},"departure":{"station":{"id":"8507000","name":"Bern","coordinate":{"x":46.948831,"y":7.439129}}},"arrival":{"station":{"id":"8506000","name":"Olten","coordinate":{"x":47.351,"y":7.907}}}},
+                {"journey":{"category":"B","number":"12","passList":[
+                  {"station":{"id":"8506000","name":"Olten","coordinate":{"x":47.351,"y":7.907}},"departure":"2026-11-01T12:35:00+01:00"},
+                  {"station":{"id":"8503000","name":"Zürich HB","coordinate":{"x":47.378176,"y":8.540212}},"arrival":"2026-11-01T12:49:00+01:00"}
+                ]},"departure":{"station":{"id":"8506000","name":"Olten","coordinate":{"x":47.351,"y":7.907}}},"arrival":{"station":{"id":"8503000","name":"Zürich HB","coordinate":{"x":47.378176,"y":8.540212}}}},
+                {"walk":{"duration":360},"departure":{"station":{"id":"8503000","name":"Zürich HB","coordinate":{"x":47.378176,"y":8.540212}},"departure":"2026-11-01T12:49:00+01:00"},"arrival":{"station":{"id":"stop-3","name":"Zürich, Bahnhofstrasse","coordinate":{"x":47.376,"y":8.538}},"arrival":"2026-11-01T12:55:00+01:00"}}
+              ]
+            }]}
+            """
+            return (HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [protocolType]
+        let client = PublicTransitClient(session: URLSession(configuration: configuration), baseURL: URL(string: "https://fixture.invalid/v1")!)
+        let tz = TimeZone(identifier: "Europe/Zurich")!
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = tz
+        let departure = try XCTUnwrap(calendar.date(from: DateComponents(timeZone: tz, year: 2026, month: 11, day: 1, hour: 12, minute: 0)))
+        let stop = TransitStop(id: "8507000", name: "Bern", coordinate: RailCoordinate(latitude: 46.948831, longitude: 7.439129))
+        let connection = try XCTUnwrap(try await client.connections(from: stop, to: stop, departure: departure).first)
+        XCTAssertEqual(connection.journey.legs.map(\.vehicle), [.train, .bus, .unknown])
+        XCTAssertTrue(connection.journey.legs[2].isWalkingTransfer)
+        XCTAssertEqual(connection.journey.stops.map(\.name), ["Bern", "Olten", "Zürich HB", "Zürich, Bahnhofstrasse"])
+        XCTAssertEqual(connection.journey.stops[0].coordinate, RailCoordinate(latitude: 46.948831, longitude: 7.439129))
+        XCTAssertEqual(connection.journey.stops[1].scheduledArrival, OJPXML.date("2026-11-01T12:29:00+01:00"))
+        XCTAssertEqual(connection.journey.stops[1].scheduledDeparture, OJPXML.date("2026-11-01T12:35:00+01:00"))
+        XCTAssertNotNil(connection.journey.stops[1].estimatedArrival)
+        XCTAssertTrue(connection.journey.geometry.isEmpty)
+        XCTAssertNotNil(connection.journey.realtimeUpdatedAt)
+    }
+
     func testPublishedOfficialCookbookResponse() throws {
         let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("Fixtures/official-lir-response.xml")
@@ -180,4 +229,22 @@ final class OJPClientTests: XCTestCase {
             + call("OnwardCall", ref: 7002, name: "Test Ziel", order: 3)
         return "<OJP><TripInfoResult>\(calls)\(service())</TripInfoResult></OJP>"
     }
+}
+
+private final class PublicTimetableURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        do {
+            let result = try XCTUnwrap(Self.handler)(request)
+            client?.urlProtocol(self, didReceive: result.0, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: result.1)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
 }

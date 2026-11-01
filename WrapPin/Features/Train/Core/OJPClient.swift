@@ -14,7 +14,7 @@ struct OJPStation: Identifiable, Equatable, Sendable {
 
 typealias TransitStop = OJPStation
 
-enum TransitVehicle: String, Sendable {
+enum TransitVehicle: String, Codable, Sendable {
     case train, tram, bus, ship, cableway, unknown
 }
 
@@ -30,7 +30,10 @@ struct TransitConnection: Identifiable, Sendable {
 /// separate from the optional official OJP client below.
 actor PublicTransitClient {
     private let session: URLSession
-    init(session: URLSession? = nil) {
+    private let baseURL: URL
+
+    init(session: URLSession? = nil, baseURL: URL = URL(string: "https://transport.opendata.ch/v1")!) {
+        self.baseURL = baseURL
         if let session { self.session = session } else {
             let c = URLSessionConfiguration.ephemeral
             c.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -40,7 +43,7 @@ actor PublicTransitClient {
 
     func searchStops(query: String) async throws -> [TransitStop] {
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return [] }
-        var c = URLComponents(string: "https://transport.opendata.ch/v1/locations")!
+        var c = URLComponents(url: baseURL.appendingPathComponent("locations"), resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "query", value: query)]
         let payload: LocationsResponse = try await get(c.url!)
         var seen = Set<String>()
@@ -53,17 +56,42 @@ actor PublicTransitClient {
     }
 
     func connections(from: TransitStop, to: TransitStop, departure: Date) async throws -> [TransitConnection] {
-        var c = URLComponents(string: "https://transport.opendata.ch/v1/connections")!
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]
-        c.queryItems = [URLQueryItem(name: "from", value: from.id), URLQueryItem(name: "to", value: to.id), URLQueryItem(name: "date", value: f.string(from: departure)), URLQueryItem(name: "limit", value: "6")]
+        var c = URLComponents(url: baseURL.appendingPathComponent("connections"), resolvingAgainstBaseURL: false)!
+        let date = Self.format(departure, pattern: "yyyy-MM-dd")
+        let time = Self.format(departure, pattern: "HH:mm")
+        c.queryItems = [
+            URLQueryItem(name: "from", value: from.id),
+            URLQueryItem(name: "to", value: to.id),
+            URLQueryItem(name: "date", value: date),
+            URLQueryItem(name: "time", value: time),
+            URLQueryItem(name: "limit", value: "6")
+        ]
         let payload: ConnectionsResponse = try await get(c.url!)
         return payload.connections.enumerated().compactMap { index, item in
             guard let dep = item.from.departureDate, let arr = item.to.arrivalDate else { return nil }
-            let category = item.sections.first?.journey?.category?.lowercased() ?? ""
-            let vehicle: TransitVehicle = category.contains("bus") ? .bus : category.contains("tram") ? .tram : category.contains("ship") ? .ship : category.isEmpty ? .unknown : .train
-            let stops = [RailStop(id: from.id, name: from.name, coordinate: from.coordinate, scheduledArrival: nil, scheduledDeparture: dep), RailStop(id: to.id, name: to.name, coordinate: to.coordinate, scheduledArrival: arr, scheduledDeparture: nil)]
-            let service = item.sections.first?.journey?.name ?? "Connection"
-            let journey = RailJourney(id: "public-\(index)-\(from.id)-\(to.id)", serviceName: "\(vehicle.rawValue.capitalized) · \(service)", stops: stops, geometry: [from.coordinate, to.coordinate], geometrySource: "Public Swiss timetable · simplified connection geometry")
+            let legs = item.sections.enumerated().compactMap { sectionIndex, section -> TransitLeg? in
+                let points = section.journey?.passList?.isEmpty == false
+                    ? section.journey!.passList! : [section.departure, section.arrival].compactMap { $0 }
+                let stops = points.compactMap(Self.stop)
+                guard stops.count >= 2 else { return nil }
+                let vehicle = Self.vehicle(category: section.journey?.category, product: section.journey?.name)
+                let service = section.journey?.displayName ?? (section.walk == nil ? "Public transport" : "Walk")
+                return TransitLeg(id: "public-\(index)-\(sectionIndex)", vehicle: vehicle,
+                                  serviceName: service, stops: stops, isWalkingTransfer: section.walk != nil)
+            }
+            guard !legs.isEmpty else { return nil }
+            let stops = Self.mergeStops(legs.flatMap(\.stops))
+            guard stops.count >= 2 else { return nil }
+            let service = legs.map(\.serviceName).joined(separator: " → ")
+            let hasForecast = stops.contains { $0.estimatedArrival != nil || $0.estimatedDeparture != nil }
+            // This endpoint supplies timetables and predictions, but no route
+            // polyline. An empty shape makes RailSimulation reject playback
+            // instead of emitting a fabricated straight-line vehicle position.
+            let journey = RailJourney(id: "public-\(index)-\(from.id)-\(to.id)", serviceName: service,
+                                      stops: stops, geometry: [],
+                                      geometrySource: "Complete stop sequence from transport.opendata.ch; this API does not publish vehicle track geometry.",
+                                      realtimeUpdatedAt: hasForecast ? Date() : nil, legs: legs)
+            let vehicle = legs.first(where: { !$0.isWalkingTransfer })?.vehicle ?? .unknown
             return TransitConnection(id: journey.id, journey: journey, vehicle: vehicle, departure: dep, arrival: arr)
         }
     }
@@ -76,12 +104,56 @@ actor PublicTransitClient {
 
     private struct LocationsResponse: Decodable { let stations: [Location] }
     private struct Location: Decodable { let id: String?; let name: String; let coordinate: Coordinate? }
-    private struct Coordinate: Decodable { let x: Double; let y: Double; var latitude: Double { y }; var longitude: Double { x } }
+    // transport.opendata.ch calls latitude x and longitude y (verified against
+    // station 8507000/Bern: x 46.948831, y 7.439129).
+    private struct Coordinate: Decodable { let x: Double; let y: Double; var latitude: Double { x }; var longitude: Double { y } }
     private struct ConnectionsResponse: Decodable { let connections: [Connection] }
     private struct Connection: Decodable { let from: Point; let to: Point; let sections: [Section] }
-    private struct Point: Decodable { let departure: String?; let arrival: String?; var departureDate: Date? { PublicTransitClient.parse(departure) }; var arrivalDate: Date? { PublicTransitClient.parse(arrival) } }
-    private struct Section: Decodable { let journey: Journey? }
-    private struct Journey: Decodable { let name: String?; let category: String? }
+    private struct Point: Decodable {
+        let station: Location?; let location: Location?; let departure: String?; let arrival: String?; let prognosis: Prognosis?
+        var departureDate: Date? { PublicTransitClient.parse(departure) }; var arrivalDate: Date? { PublicTransitClient.parse(arrival) }
+    }
+    private struct Prognosis: Decodable { let departure: String?; let arrival: String? }
+    private struct Section: Decodable { let journey: Journey?; let walk: Walk?; let departure: Point?; let arrival: Point? }
+    private struct Walk: Decodable { let duration: Int? }
+    private struct Journey: Decodable {
+        let name: String?; let category: String?; let number: String?; let passList: [Point]?
+        var displayName: String { [category, number ?? name].compactMap { $0 }.joined(separator: " ") }
+    }
+    private static func stop(_ point: Point) -> RailStop? {
+        guard let place = point.station ?? point.location, let id = place.id, let coordinate = place.coordinate,
+              coordinate.latitude.isFinite, coordinate.longitude.isFinite else { return nil }
+        return RailStop(id: id, name: place.name,
+                        coordinate: RailCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude),
+                        scheduledArrival: point.arrivalDate, scheduledDeparture: point.departureDate,
+                        estimatedArrival: parse(point.prognosis?.arrival), estimatedDeparture: parse(point.prognosis?.departure))
+    }
+    private static func mergeStops(_ input: [RailStop]) -> [RailStop] {
+        input.reduce(into: []) { result, stop in
+            guard let last = result.last, last.id == stop.id else { result.append(stop); return }
+            result[result.count - 1] = RailStop(id: last.id, name: last.name, coordinate: last.coordinate,
+                scheduledArrival: last.scheduledArrival ?? stop.scheduledArrival,
+                scheduledDeparture: stop.scheduledDeparture ?? last.scheduledDeparture,
+                estimatedArrival: last.estimatedArrival ?? stop.estimatedArrival,
+                estimatedDeparture: stop.estimatedDeparture ?? last.estimatedDeparture,
+                cancelled: last.cancelled || stop.cancelled)
+        }
+    }
+    private static func vehicle(category: String?, product: String?) -> TransitVehicle {
+        let value = [category, product].compactMap { $0?.lowercased() }.joined(separator: " ")
+        if value.contains("tram") || category?.uppercased() == "T" { return .tram }
+        if value.contains("bus") || category?.uppercased() == "B" { return .bus }
+        if value.contains("ship") || value.contains("bat") { return .ship }
+        if value.contains("cable") || value.contains("gondola") { return .cableway }
+        return value.isEmpty ? .unknown : .train
+    }
+    private static func format(_ date: Date, pattern: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Europe/Zurich")
+        formatter.dateFormat = pattern
+        return formatter.string(from: date)
+    }
     private static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
         if let date = ISO8601DateFormatter().date(from: value) { return date }

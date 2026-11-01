@@ -52,9 +52,9 @@ struct TrainView: View {
                         Text("Timetable").tag(RailSimulationMode.timetable)
                         Text("Live estimate").tag(RailSimulationMode.realtime)
                     }
-                    Button("Find direct trains") { Task { await model.findConnections() } }
+                    Button("Find connections") { Task { await model.findConnections() } }
                         .disabled(model.origin == nil || model.destination == nil || model.origin?.id == model.destination?.id)
-                    Text("Bus, tram and train connections are provided by the public timetable service. The first MVP route is simulated as a direct connection.")
+                    Text("Train, bus and tram connections including transfers are shown from the public timetable. Playback requires published route geometry and is unavailable for timetable-only connections.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .disabled(model.locksControls || model.isLoading)
@@ -91,6 +91,12 @@ struct TrainView: View {
                     Section("Rail route") {
                         routeMap(journey)
                             .frame(height: 230).listRowInsets(EdgeInsets())
+                        if !journey.legs.isEmpty {
+                            ForEach(journey.legs) { leg in
+                                Text(verbatim: "\(leg.isWalkingTransfer ? "Walk" : leg.vehicle.rawValue.capitalized) · \(leg.serviceName) · \(leg.stops.count) stops")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                         ForEach(Array(journey.stops.enumerated()), id: \.offset) { _, stop in
                             HStack {
                                 Text(verbatim: stop.name)
@@ -130,7 +136,7 @@ struct TrainView: View {
                             .disabled(model.isStopping)
                     } else {
                         Button("Start train simulation") { Task { await model.start(using: app) } }
-                            .disabled(model.selectedJourney == nil || model.isLoading || app.interruptedSession != nil)
+                        .disabled(model.selectedJourney == nil || (model.selectedJourney?.geometry.count ?? 0) < 2 || model.isLoading || app.interruptedSession != nil)
                     }
                     if let message = model.message { Text(verbatim: message).foregroundStyle(.orange) }
                     if let warning = model.refreshWarning { Text(verbatim: warning).foregroundStyle(.orange) }
