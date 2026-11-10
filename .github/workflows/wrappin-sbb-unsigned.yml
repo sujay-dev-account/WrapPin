@@ -33,7 +33,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/Payload"
-          cp -R "$RUNNER_TEMP/WrapPinSBB.xcarchive/Products/Applications/WrapPinSBB.app" "$RUNNER_TEMP/Payload/"
+          app_path=$(find "$RUNNER_TEMP/WrapPinSBB.xcarchive/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$app_path" || { echo "No app found in archive"; find "$RUNNER_TEMP/WrapPinSBB.xcarchive" -maxdepth 4 -print; exit 1; }
+          cp -R "$app_path" "$RUNNER_TEMP/Payload/"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Payload" "$RUNNER_TEMP/WrapPin-SBB-unsigned.ipa"
 
       - name: Upload unsigned IPA
