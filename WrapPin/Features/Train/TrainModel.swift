@@ -147,12 +147,13 @@ final class TrainModel {
             if let index = journeys.firstIndex(where: { $0.id == journey.id }) { journeys[index] = resolvedJourney }
             let now = Date.now
             let newEngine = try RailSimulation(journey: resolvedJourney, mode: mode, now: now)
-            // Timetable is replayed from its first planned departure. Live mode
-            // stays on the actual clock and is always labelled as an estimate.
-            let firstDeparture = resolvedJourney.stops.first?.scheduledDeparture
-                ?? resolvedJourney.stops.first?.scheduledArrival ?? now
-            clockOffset = mode == .timetable ? firstDeparture.timeIntervalSince(now) : 0
-            let initial = newEngine.sample(at: now.addingTimeInterval(clockOffset))
+            // Timetable mode follows the real clock. If the user starts before
+            // departure, the simulated train stays at the first stop until
+            // that scheduled time; it does not replay from departure instantly.
+            // Live mode also stays on the actual clock and is labelled as an
+            // estimate in the UI.
+            clockOffset = 0
+            let initial = newEngine.sample(at: now)
             if mode == .realtime, initial.realtimeStatus != .estimated {
                 message = String(localized: "Fresh predictions are unavailable. Choose timetable mode explicitly.")
                 return
@@ -215,11 +216,7 @@ final class TrainModel {
                         self.isPreparing = false
                         self.isRunning = true
                         self.lastTick = Date.now
-                        if self.mode == .timetable,
-                           let first = self.activeJourney?.stops.first,
-                           let departure = first.scheduledDeparture ?? first.scheduledArrival {
-                            self.clockOffset = departure.timeIntervalSince(.now)
-                        }
+                        self.clockOffset = 0
                     }
                     self.tick(using: app)
                 case .failed(let error):

@@ -18,7 +18,7 @@ struct TrainView: View {
             Form {
                 Section {
                     Text("Experimental train simulation. Your original WrapPin installation is separate.")
-                    Text("Timetable replays from departure now. Live mode estimates position from predicted stop times; it is not live train GPS.")
+                    Text("Timetable mode waits at the first stop until the scheduled departure. Live mode estimates position from predicted stop times; it is not live train GPS.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if app.interruptedSession != nil {
@@ -145,7 +145,7 @@ struct TrainView: View {
                     }
                     if let message = model.message { Text(verbatim: message).foregroundStyle(.orange) }
                     if let warning = model.refreshWarning { Text(verbatim: warning).foregroundStyle(.orange) }
-                    Text("Keep the app in the foreground for the first test. Background and lock-screen operation are not verified. A detected interruption stops playback and requests real-location restoration.")
+                    Text("Keep WrapPin open while preparing the session. Once the location session is active, playback can continue in the background or with the screen locked when Location access is enabled. A detected interruption stops playback and requests real-location restoration.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section {
