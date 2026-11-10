@@ -92,8 +92,8 @@ def check():
         assert objects[config["baseConfigurationReference"]]["path"] == "Configuration/SBB.xcconfig"
         assert settings["PRODUCT_BUNDLE_IDENTIFIER"] == "ch.local.wrappin.sbb.experimental"
         assert settings["WRAPPIN_CALLBACK_SCHEME"] == "wrappinsbb"
-        assert settings["WRAPPIN_DISPLAY_NAME"] == "WrapPin SBB"
-        assert settings["PRODUCT_NAME"] == "WrapPinSBB"
+        assert settings["WRAPPIN_DISPLAY_NAME"] == "GPS Spoofer"
+        assert settings["PRODUCT_NAME"] == "GPS Spoofer"
         assert settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] == "WRAPPIN_SBB_EDITION $(inherited)"
         assert "CODE_SIGN_ENTITLEMENTS" not in settings
         assert not settings.get("DEVELOPMENT_TEAM"), "No personal signing team in project"

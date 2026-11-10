@@ -24,6 +24,23 @@ actor PublicTransitGeometryResolver {
 
     func resolve(_ journey: RailJourney) async throws -> RailJourney {
         guard journey.geometry.count < 2 else { return journey }
+        // A selected connection may contain several vehicle legs. Bound the
+        // complete open-map resolution, not just each individual HTTP call.
+        // This keeps a busy routing/Overpass service from making Start appear
+        // stuck while still allowing the normal fallback chain to complete.
+        return try await withThrowingTaskGroup(of: RailJourney.self) { group in
+            group.addTask { try await self.resolveWithoutOverallTimeout(journey) }
+            group.addTask {
+                try await Task.sleep(for: .seconds(35))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw URLError(.unknown) }
+            return result
+        }
+    }
+
+    private func resolveWithoutOverallTimeout(_ journey: RailJourney) async throws -> RailJourney {
         let legs = journey.legs.isEmpty
             ? [TransitLeg(id: journey.id, vehicle: .train, serviceName: journey.serviceName, stops: journey.stops, isWalkingTransfer: false)]
             : journey.legs

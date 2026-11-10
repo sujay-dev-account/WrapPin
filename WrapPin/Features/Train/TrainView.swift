@@ -9,6 +9,9 @@ struct TrainView: View {
     @State private var showsPairing = false
     @State private var showsSettings = false
 
+    private let railGreen = Color(red: 0.18, green: 0.78, blue: 0.42)
+    private let railBlack = Color(red: 0.035, green: 0.045, blue: 0.05)
+
     var body: some View {
         @Bindable var model = model
         NavigationStack {
@@ -151,7 +154,13 @@ struct TrainView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("WrapPin SBB")
+            .navigationTitle("GPS Spoofer")
+            .scrollContentBackground(.hidden)
+            .background(railBlack)
+            .tint(railGreen)
+            .environment(\.colorScheme, .dark)
+            .listRowBackground(Color.white.opacity(0.06))
+            .headerProminence(.increased)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Device setup") { showsPairing = true }
@@ -204,7 +213,7 @@ struct TrainView: View {
         Map {
             MapPolyline(coordinates: journey.geometry.map {
                 CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-            }).stroke(.blue, lineWidth: 4)
+            }).stroke(railGreen, lineWidth: 5)
             ForEach(Array(journey.stops.enumerated()), id: \.offset) { _, stop in
                 Marker(stop.name, coordinate: CLLocationCoordinate2D(
                     latitude: stop.coordinate.latitude, longitude: stop.coordinate.longitude
@@ -214,7 +223,7 @@ struct TrainView: View {
                 Annotation("Simulated train", coordinate: CLLocationCoordinate2D(
                     latitude: point.latitude, longitude: point.longitude
                 )) {
-                    Image(systemName: "tram.circle.fill").font(.title).foregroundStyle(.red)
+                    Image(systemName: "tram.circle.fill").font(.title).foregroundStyle(railGreen)
                 }
             }
         }.id(journey.id)
@@ -227,7 +236,7 @@ struct TrainView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: vehicleSymbol(primaryLeg?.vehicle ?? .unknown))
-                    .font(.headline).foregroundStyle(.indigo)
+                    .font(.headline).foregroundStyle(railGreen)
                     .frame(width: 24)
                 Text(verbatim: service).font(.headline)
                 if !direction.isEmpty {
@@ -238,7 +247,7 @@ struct TrainView: View {
                 Spacer(minLength: 8)
                 if selected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.indigo)
+                        .foregroundStyle(railGreen)
                         .accessibilityLabel("Ausgewählt")
                 }
             }
@@ -257,11 +266,11 @@ struct TrainView: View {
         .padding(16)
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(selected ? Color.indigo.opacity(0.10) : Color(uiColor: .secondarySystemBackground))
+                .fill(selected ? railGreen.opacity(0.18) : Color.white.opacity(0.07))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(selected ? Color.indigo : Color.clear, lineWidth: 2)
+                .stroke(selected ? railGreen : Color.white.opacity(0.08), lineWidth: selected ? 2 : 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)

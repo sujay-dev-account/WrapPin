@@ -37,6 +37,11 @@ actor PublicTransitClient {
         if let session { self.session = session } else {
             let c = URLSessionConfiguration.ephemeral
             c.requestCachePolicy = .reloadIgnoringLocalCacheData
+            // The timetable endpoint is used from an interactive screen. Do
+            // not let DNS/connectivity problems leave the spinner running for
+            // the platform's much longer default timeout.
+            c.timeoutIntervalForRequest = 12
+            c.timeoutIntervalForResource = 20
             self.session = URLSession(configuration: c)
         }
     }
@@ -97,7 +102,9 @@ actor PublicTransitClient {
     }
 
     private func get<T: Decodable>(_ url: URL) async throws -> T {
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
+        request.httpMethod = "GET"
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw OJPError.http((response as? HTTPURLResponse)?.statusCode ?? 0) }
         return try JSONDecoder().decode(T.self, from: data)
     }

@@ -111,7 +111,7 @@ private struct SBBHomeView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.blue)
+            .tint(Color(red: 0.18, green: 0.78, blue: 0.42))
             .padding(.horizontal)
             .padding(.bottom, 6)
         }

@@ -857,3 +857,15 @@
 "No fresh predictions. Simulation stops when the data expires." = "没有最新预报。数据过期时将停止模拟。";
 "This train was cancelled. Real location is being restored." = "该列车已取消。正在恢复真实位置。";
 "Refresh failed. Simulation stops when the data expires." = "更新失败。数据过期时将停止模拟。";
+"Public Swiss timetable" = "瑞士公共交通时刻表";
+"Stop search and connections use transport.opendata.ch. No API key is required." = "车站搜索和连接查询使用 transport.opendata.ch，无需 API 密钥。";
+"Type a stop name" = "输入车站名称";
+"Find connections" = "查找连接";
+"Train, bus and tram connections including transfers are shown from the public timetable. Playback resolves its rail and road geometry from open map data before it starts." = "公共时刻表会显示包括换乘在内的火车、公交和电车连接。回放开始前会根据开放地图数据解析铁路和道路路线。";
+"Verbindung wählen" = "选择连接";
+"Ausgewählt" = "已选择";
+"Tippen, um diese Verbindung auszuwählen" = "轻点以选择此连接";
+"No stops found. Try another name." = "未找到车站。请尝试其他名称。";
+"Loading route geometry from open map data…" = "正在从开放地图数据加载路线几何……";
+"ÖV" = "公共交通";
+"GPS Spoofer" = "GPS Spoofer";

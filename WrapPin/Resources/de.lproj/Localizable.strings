@@ -49,6 +49,7 @@
 "Station stop" = "Bahnhofshalt";
 "Arrived" = "Angekommen";
 "WrapPin SBB" = "WrapPin SBB";
+"GPS Spoofer" = "GPS Spoofer";
 "No stations found. Try another station name." = "Keine Bahnhöfe gefunden. Versuche einen anderen Namen.";
 "Pair this iPhone before starting a route session." = "Kopple dieses iPhone vor dem Start einer Fahrt.";
 "Stop the existing location session before starting a train." = "Beende die laufende Standort-Sitzung vor dem Start einer Zugfahrt.";
